@@ -1,0 +1,68 @@
+name: "backend: build -> GHCR -> PR to infra"
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/skillswap-backend
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-push-and-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build jar (skip tests initially)
+        run: ./mvnw -B -DskipTests package
+
+      - name: Login to GHCR (GITHUB_TOKEN)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push image
+        shell: bash
+        run: |
+          TAG=${GITHUB_SHA::7}
+          docker build -t "$IMAGE:$TAG" -t "$IMAGE:dev" .
+          docker push "$IMAGE:$TAG"
+          docker push "$IMAGE:dev"
+
+      - name: Open PR to infra (bump backend tag)
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG=${GITHUB_SHA::7}
+          git clone "https://github.com/${{ secrets.INFRA_REPO }}" infra
+          cd infra
+          sed -i 's/^[[:space:]]*tag:[[:space:]]*".*"/  tag: "'$TAG'"/' environments/dev/values-backend.yaml
+          git config user.name  "${{ secrets.GH_USERNAME }}"
+          git config user.email "${{ secrets.GH_EMAIL }}"
+          BR="ci/backend-${GITHUB_RUN_ID}"
+          git checkout -b "$BR"
+          git add environments/dev/values-backend.yaml
+          git commit -m "infra(dev): backend image tag -> $TAG"
+          git push "https://x-access-token:${{ secrets.CR_PAT }}@github.com/${{ secrets.INFRA_REPO }}" "$BR"
+          curl -s -H "Authorization: token ${{ secrets.CR_PAT }}" \
+               -H "Accept: application/vnd.github+json" \
+               -d "{\"title\":\"Update backend tag to $TAG\",\"head\":\"$BR\",\"base\":\"${{ secrets.INFRA_BRANCH }}\",\"body\":\"Automated PR from backend CI\"}" \
+               "https://api.github.com/repos/${{ secrets.INFRA_REPO }}/pulls"

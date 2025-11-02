@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: skillswap-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-skillswap}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-skillswap}
+      POSTGRES_DB: ${POSTGRES_DB:-skillswap}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-skillswap} -d ${POSTGRES_DB:-skillswap}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    # Only expose if you want to connect with a desktop SQL client:
+    # ports:
+    #   - "5432:5432"
+
+  backend:
+    image: skillswap-backend:dev          # or build: .  (if you want compose to build)
+    # build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # These match application.yml placeholders
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-skillswap}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-skillswap}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-skillswap}
+      # If you don't have migrations yet, you can temporarily disable:
+      # SPRING_FLYWAY_ENABLED: "false"
+      SPRING_PROFILES_ACTIVE: dev
+    ports:
+      - "8080:8080"
+  frontend:
+    image: skillswap-frontend:dev
+    build:
+      context: ../skillswap-frontend
+    ports:
+      - "5173:8080"
+    depends_on:
+      - backend
+volumes:
+  pgdata: {}

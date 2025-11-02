@@ -2,6 +2,7 @@ package nl.ak.skillswap.skillswap.massages.service;
 
 import nl.ak.skillswap.skillswap.massages.domain.Message;
 import nl.ak.skillswap.skillswap.massages.repo.MessageRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.time.OffsetDateTime;
@@ -19,11 +20,12 @@ public class MessageServiceImpl implements MessageService {
 
     @Override
     public Message create(UUID userId, String content) {
-        return repo.save(new Message(0L, userId, content, OffsetDateTime.now()));
+        var m = new Message(userId, content, OffsetDateTime.now());
+        return repo.save(m); // JPA generates the ID
     }
 
     @Override
     public List<Message> list(int limit) {
-        return repo.list(Math.min(limit, 200));
+        return repo.findAllByOrderByCreatedAtDesc(PageRequest.of(0, Math.min(limit, 200)));
     }
 }
