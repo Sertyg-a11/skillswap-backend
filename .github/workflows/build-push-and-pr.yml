@@ -10,8 +10,10 @@ permissions:
   packages: write
   pull-requests: write
 
+# If your backend lives in a subfolder, change WORKDIR (e.g. ./backend)
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/skillswap-backend
+  WORKDIR: .
+  IMAGE_BASENAME: skillswap-backend
 
 concurrency:
   group: backend-${{ github.ref }}
@@ -20,6 +22,11 @@ concurrency:
 jobs:
   build-push-and-pr:
     runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ${{ env.WORKDIR }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -29,8 +36,22 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Build jar (skip tests initially)
-        run: ./mvnw -B -DskipTests package
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/gradle-wrapper.properties', '**/*.gradle*', '**/settings.gradle*') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Build with Gradle (wrapper)
+        shell: bash
+        run: |
+          set -e
+          test -f ./gradlew || { echo "Gradle wrapper missing. Run 'gradle wrapper' and commit it."; exit 1; }
+          chmod +x ./gradlew
+          ./gradlew build -x test
 
       - name: Login to GHCR (GITHUB_TOKEN)
         uses: docker/login-action@v3
@@ -39,30 +60,48 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build & push image
+      - name: Build & push image (lowercased owner)
         shell: bash
-        run: |
-          TAG=${GITHUB_SHA::7}
-          docker build -t "$IMAGE:$TAG" -t "$IMAGE:dev" .
-          docker push "$IMAGE:$TAG"
-          docker push "$IMAGE:dev"
-
-      - name: Open PR to infra (bump backend tag)
-        shell: bash
+        working-directory: ${{ env.WORKDIR }}
         run: |
           set -euo pipefail
           TAG=${GITHUB_SHA::7}
-          git clone "https://github.com/${{ secrets.INFRA_REPO }}" infra
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/${OWNER_LC}/${{ env.IMAGE_BASENAME }}"
+
+          # If your Dockerfile is not in WORKDIR, add:  -f <path-to-Dockerfile>
+          docker build -t "${IMAGE}:${TAG}" -t "${IMAGE}:dev" .
+          docker push "${IMAGE}:${TAG}"
+          docker push "${IMAGE}:dev"
+
+      - name: Open PR to infra (bump backend tag)
+        shell: bash
+        env:
+          INFRA_REPO:   ${{ secrets.INFRA_REPO }}     # e.g. AndrewKolodyazhniy/skillswap-infra
+          INFRA_BRANCH: ${{ secrets.INFRA_BRANCH }}   # e.g. main
+          GH_USER:      ${{ secrets.GH_USERNAME }}
+          GH_EMAIL:     ${{ secrets.GH_EMAIL }}
+          PAT:          ${{ secrets.CR_PAT }}         # PAT with repo/public_repo + write:packages
+        run: |
+          set -euo pipefail
+          TAG=${GITHUB_SHA::7}
+          BR="ci/backend-${GITHUB_RUN_ID}-${TAG}"
+
+          # Authenticated clone (works for private infra repos)
+          git clone "https://x-access-token:${PAT}@github.com/${INFRA_REPO}.git" infra
           cd infra
+
+          # Update tag in dev values
           sed -i 's/^[[:space:]]*tag:[[:space:]]*".*"/  tag: "'$TAG'"/' environments/dev/values-backend.yaml
-          git config user.name  "${{ secrets.GH_USERNAME }}"
-          git config user.email "${{ secrets.GH_EMAIL }}"
-          BR="ci/backend-${GITHUB_RUN_ID}"
+
+          git config user.name  "$GH_USER"
+          git config user.email "$GH_EMAIL"
           git checkout -b "$BR"
           git add environments/dev/values-backend.yaml
           git commit -m "infra(dev): backend image tag -> $TAG"
-          git push "https://x-access-token:${{ secrets.CR_PAT }}@github.com/${{ secrets.INFRA_REPO }}" "$BR"
-          curl -s -H "Authorization: token ${{ secrets.CR_PAT }}" \
-               -H "Accept: application/vnd.github+json" \
-               -d "{\"title\":\"Update backend tag to $TAG\",\"head\":\"$BR\",\"base\":\"${{ secrets.INFRA_BRANCH }}\",\"body\":\"Automated PR from backend CI\"}" \
-               "https://api.github.com/repos/${{ secrets.INFRA_REPO }}/pulls"
+          git push "https://x-access-token:${PAT}@github.com/${INFRA_REPO}.git" "$BR"
+
+          # Create PR
+          curl -s -H "Authorization: token ${PAT}" -H "Accept: application/vnd.github+json" \
+            -d "{\"title\":\"Update backend tag to ${TAG}\",\"head\":\"${BR}\",\"base\":\"${INFRA_BRANCH}\",\"body\":\"Automated PR from backend CI\"}" \
+            "https://api.github.com/repos/${INFRA_REPO}/pulls"
