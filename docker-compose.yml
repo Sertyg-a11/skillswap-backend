@@ -1,46 +1,78 @@
+name: skillswap-dev
+
 services:
   postgres:
     image: postgres:16-alpine
     container_name: skillswap-postgres
     restart: unless-stopped
+    profiles: ["db", "backend", "full"]
+    env_file: .env
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-skillswap}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-skillswap}
-      POSTGRES_DB: ${POSTGRES_DB:-skillswap}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-skillswap} -d ${POSTGRES_DB:-skillswap}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
-      retries: 12
-    # Only expose if you want to connect with a desktop SQL client:
-    # ports:
-    #   - "5432:5432"
+      retries: 30
 
   backend:
-    image: skillswap-backend:dev          # or build: .  (if you want compose to build)
-    # build: .
+    build:
+      context: ../skillswap-backend
+      dockerfile: Dockerfile
     depends_on:
       postgres:
         condition: service_healthy
+    profiles: ["backend", "full"]
+    env_file: .env
     environment:
-      # These match application.yml placeholders
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-skillswap}
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-skillswap}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-skillswap}
-      # If you don't have migrations yet, you can temporarily disable:
-      # SPRING_FLYWAY_ENABLED: "false"
       SPRING_PROFILES_ACTIVE: dev
     ports:
-      - "8080:8080"
+      - "8081:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  # Frontend served by Nginx (prod-like)
   frontend:
-    image: skillswap-frontend:dev
+    # or build locally:
     build:
       context: ../skillswap-frontend
-    ports:
-      - "5173:8080"
+      dockerfile: Dockerfile
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    profiles: ["frontend", "full"]
+    environment:
+      BACKEND_BASE: http://backend:8080
+
+
+    ports:
+      - "5173:8080"   # Visit http://localhost:5173
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
 volumes:
   pgdata: {}
+
+# Backend only:
+#docker compose --profile backend up -d
+#
+#Full app:
+#docker compose --profile full up -d
+#
+#Logs (follow):
+#docker compose logs -f backend
+#
+#Stop & clean:
+#docker compose down -v
