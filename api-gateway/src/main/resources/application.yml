@@ -1,0 +1,26 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+# later for Keycloak:
+# spring:
+#   security:
+#     oauth2:
+#       resourceserver:
+#         jwt:
+#           issuer-uri: http://localhost:8081/realms/skillswap
+
+skillswap:
+  user-service:
+    base-url: http://localhost:8081
+  swap-service:
+    base-url: http://localhost:8082

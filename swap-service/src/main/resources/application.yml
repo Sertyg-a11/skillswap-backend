@@ -1,0 +1,34 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: swap-service
+
+  datasource:
+    url: jdbc:postgresql://ep-withered-king-ab9uvoxb-pooler.eu-west-2.aws.neon.tech/skillswap_swap?sslmode=require&channel_binding=require
+    username: neondb_owner
+    password: npg_CX9yr6ZMvSzu
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: true
+    properties:
+      hibernate.format_sql: true
+
+  spring:
+    flyway:
+      enabled: true
+      url: ${SWAP_DB_URL}
+      user: ${SWAP_DB_USERNAME}
+      password: ${SWAP_DB_PASSWORD}
+      locations: classpath:db/migration
+      baseline-on-migrate: true
+
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
