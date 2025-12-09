@@ -1,5 +1,4 @@
 spring:
-  profiles: k8s
 
   datasource:
     # Defaults to a Service name that *exists in K8s*. Override via envs if needed.
