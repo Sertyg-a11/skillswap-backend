@@ -11,8 +11,8 @@ permissions:
   pull-requests: write
 
 env:
-  CONTEXT: .                 # change to ./backend if your Dockerfile lives there
-  DOCKERFILE: Dockerfile     # change if your Dockerfile has a different name
+  CONTEXT: .                 # change to ./backend if your docker-compose.keycloak.yml lives there
+  DOCKERFILE: docker-compose.keycloak.yml     # change if your docker-compose.keycloak.yml has a different name
   IMAGE_NAME: skillswap-backend
 
 concurrency:
@@ -41,7 +41,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build & Push (Dockerfile builds the jar)
+      - name: Build & Push (docker-compose.keycloak.yml builds the jar)
         uses: docker/build-push-action@v6
         with:
           context: ${{ env.CONTEXT }}

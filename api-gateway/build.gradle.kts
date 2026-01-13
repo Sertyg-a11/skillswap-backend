@@ -1,6 +1,6 @@
 plugins {
     java
-    id("org.springframework.boot") version "4.0.0"
+    id("org.springframework.boot") version "3.5.5"
     id("io.spring.dependency-management") version "1.1.7"
 }
 
@@ -18,17 +18,27 @@ repositories {
     mavenCentral()
 }
 
+dependencyManagement {
+    imports {
+        // Spring Cloud release train compatible with Spring Boot 3.5.x
+        mavenBom("org.springframework.cloud:spring-cloud-dependencies:2025.0.0")
+    }
+}
+
 dependencies {
-    implementation("org.springframework.boot:spring-boot-starter-web")
-    implementation("org.springframework.boot:spring-boot-starter-actuator")
+    // Gateway (WebFlux)
+    implementation("org.springframework.cloud:spring-cloud-starter-gateway")
+
+    // Security + JWT resource server (Keycloak)
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
-    implementation("org.springframework.boot:spring-boot-starter-webflux") // for WebClient
 
-    // later, when you wire Redis for rate limiting:
-    // implementation("org.springframework.boot:spring-boot-starter-data-redis")
+    // Observability
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
+    runtimeOnly("io.micrometer:micrometer-registry-prometheus")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.security:spring-security-test")
 }
 
 tasks.withType<Test> {

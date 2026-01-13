@@ -1,4 +1,0 @@
-<configuration>
-    <logger name="org.springframework.boot.autoconfigure.flyway" level="DEBUG"/>
-    <logger name="org.flywaydb" level="DEBUG"/>
-</configuration>

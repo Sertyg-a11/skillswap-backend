@@ -1,5 +1,11 @@
 server:
-  port: 8081
+  port: 8082
+
+app:
+  messaging:
+    exchange: skillswap.events
+    routingKeyUserDeleted: user.deleted
+
 
 spring:
   application:
@@ -24,6 +30,19 @@ spring:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/skillswap-dev}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/skillswap-dev}/protocol/openid-connect/certs}
+
+  rabbitmq:
+    host: ${RABBIT_HOST:localhost}
+    port: ${RABBIT_PORT:5672}
+    username: ${RABBIT_USERNAME:guest}
+    password: ${RABBIT_PASSWORD:guest}
 
 management:
   endpoints:

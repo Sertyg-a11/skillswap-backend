@@ -6,8 +6,11 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -15,43 +18,26 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import java.util.List;
 
 @Configuration
+@EnableWebFluxSecurity
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        http
-                .csrf(AbstractHttpConfigurer::disable)
-                .cors(Customizer.withDefaults())
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
-                        // allow preflight everywhere
-                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+    SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
+        return http
+                .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                .authorizeExchange(ex -> ex
+                        .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                        // allow actuator (health/info/prometheus as needed)
-                        .requestMatchers("/actuator/**").permitAll()
+                        .pathMatchers("/actuator/**").permitAll()
 
-                        // your public API
-                        .requestMatchers(HttpMethod.GET, "/api/messages").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/messages").permitAll()
+                        // Reserve /api/admin/** for later admin features; protected at gateway
+                        .pathMatchers("/api/admin/**").hasRole("admin")
 
-                        // everything else requires auth
-                        .anyRequest().permitAll()
+                        // everything else must be authenticated
+                        .anyExchange().authenticated()
                 )
-                .httpBasic(AbstractHttpConfigurer::disable);
-        System.out.println(">>> Custom SecurityFilterChain is ACTIVE");
-        return http.build();
-    }
-
-    @Bean
-    CorsConfigurationSource corsConfigurationSource() {
-        var cfg = new CorsConfiguration();
-        cfg.setAllowedOrigins(List.of("http://localhost:5173", "http://localhost:3000"));
-        cfg.setAllowedMethods(List.of("GET","POST","PUT","DELETE","OPTIONS"));
-        cfg.setAllowedHeaders(List.of("Authorization","Content-Type"));
-
-        var src = new UrlBasedCorsConfigurationSource();
-        src.registerCorsConfiguration("/**", cfg);
-        return src;
+                .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
+                .build();
     }
 }
 
