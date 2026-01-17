@@ -1,1 +1,3 @@
-rootProject.name = "skillswap"
+rootProject.name = "skillswap-backend"
+
+include("api-gateway", "user-service", "message-service")

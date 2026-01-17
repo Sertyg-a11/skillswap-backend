@@ -1,0 +1,70 @@
+server:
+  port: 8082
+
+app:
+  messaging:
+    exchange: skillswap.events
+    routingKeyUserDeleted: user.deleted
+
+  gdpr:
+    queue:
+      export: gdpr.export.user-service
+      deletion: gdpr.deletion.user-service
+
+  search:
+    max-results: ${SEARCH_MAX_RESULTS:20}
+    min-query-length: ${SEARCH_MIN_QUERY_LENGTH:2}
+    max-query-length: ${SEARCH_MAX_QUERY_LENGTH:100}
+
+  rate-limiting:
+    search-per-minute: ${RATE_LIMIT_SEARCH:30}
+    search-burst: ${RATE_LIMIT_SEARCH_BURST:10}
+
+
+spring:
+  application:
+    name: user-service
+
+  config:
+    import: "optional:file:../.env[.properties]"
+
+  datasource:
+    url: ${USER_DB_URL}
+    username: ${USER_DB_USERNAME}
+    password: ${USER_DB_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: true
+    properties:
+      hibernate.format_sql: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/skillswap-dev}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/skillswap-dev}/protocol/openid-connect/certs}
+
+  rabbitmq:
+    host: ${RABBIT_HOST:localhost}
+    port: ${RABBIT_PORT:5672}
+    username: ${RABBIT_USERNAME:guest}
+    password: ${RABBIT_PASSWORD:guest}
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
