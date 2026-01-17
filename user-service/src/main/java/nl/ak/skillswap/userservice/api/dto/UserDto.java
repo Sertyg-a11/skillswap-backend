@@ -33,4 +33,24 @@ public record UserDto(
                 u.getDeletedAt()
         );
     }
+
+    /**
+     * Create a DTO with limited public information (for viewing other users).
+     * Hides sensitive data like email, externalId, and preferences.
+     */
+    public static UserDto fromPublic(User u) {
+        return new UserDto(
+                u.getId(),
+                null,  // Hide external ID
+                null,  // Hide email (privacy)
+                u.getDisplayName(),
+                u.getTimeZone(),
+                u.getBio(),
+                true,  // Always show as active (since we only return active users)
+                true,  // Always show as matchable
+                false, // Hide email preference
+                u.getCreatedAt(),
+                null   // Hide deletion status
+        );
+    }
 }

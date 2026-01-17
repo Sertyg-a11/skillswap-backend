@@ -1,6 +1,7 @@
 package nl.ak.skillswap.messageservice.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import nl.ak.skillswap.messageservice.domain.Conversation;
 import nl.ak.skillswap.messageservice.domain.Message;
 import nl.ak.skillswap.messageservice.repository.MessageRepository;
@@ -15,6 +16,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MessageService {
@@ -23,9 +25,22 @@ public class MessageService {
     private final MessageRepository messageRepository;
     private final UnreadCounterService unreadCounterService;
     private final MessageEventPublisher eventPublisher;
+    private final UserValidationService userValidationService;
+    private final RateLimitingService rateLimitingService;
+    private final MessageSanitizer messageSanitizer;
+    private final RealTimeMessagingService realTimeMessagingService;
 
     @Transactional
     public Message sendMessage(UUID me, UUID otherUserId, String body) {
+        // OWASP: Rate limiting to prevent spam/DoS
+        rateLimitingService.checkMessageRateLimit(me);
+
+        // Validate recipient exists and can receive messages
+        userValidationService.canSendMessageTo(me, otherUserId);
+
+        // OWASP: Sanitize input to prevent XSS
+        String sanitizedBody = messageSanitizer.sanitize(body);
+
         Conversation conversation = conversationService.getOrCreate(me, otherUserId);
 
         if (!conversation.involves(me)) {
@@ -39,7 +54,7 @@ public class MessageService {
                         .conversationId(conversation.getId())
                         .senderId(me)
                         .recipientId(otherUserId)
-                        .body(body)
+                        .body(sanitizedBody)
                         .createdAt(now)
                         .readAt(null)
                         .build()
@@ -83,6 +98,13 @@ public class MessageService {
 
         int updated = messageRepository.markConversationRead(conversationId, me, Instant.now());
         unreadCounterService.clearUnread(me, conversationId);
+
+        // Send read receipt notification to the other participant
+        UUID otherUserId = conversation.otherParticipant(me);
+        if (otherUserId != null && updated > 0) {
+            realTimeMessagingService.notifyMessagesRead(otherUserId, conversationId);
+        }
+
         return updated;
     }
 

@@ -4,24 +4,67 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 
-import java.util.UUID;
-
+/**
+ * Utility class for extracting user information from JWT authentication.
+ *
+ * Note: For most use cases, prefer using {@link UserContextResolver} which
+ * resolves the Keycloak external ID to database UUID. This class provides
+ * low-level access to JWT claims when needed.
+ */
 public final class CurrentUser {
     private CurrentUser() {}
 
-    public static UUID userId(Authentication authentication) {
+    /**
+     * Extract the external ID (Keycloak subject) from authentication.
+     *
+     * @param authentication The Spring Security authentication
+     * @return The Keycloak subject ID (external ID)
+     */
+    public static String externalId(Authentication authentication) {
         if (authentication instanceof JwtAuthenticationToken token) {
-            Jwt jwt = token.getToken();
-
-            // Most common: Keycloak "sub" is the user id
-            String sub = jwt.getSubject();
-            if (sub != null) return UUID.fromString(sub);
-
-            // Fallback if you ever map differently:
-            Object claim = jwt.getClaims().get("sub");
-            if (claim != null) return UUID.fromString(String.valueOf(claim));
+            String sub = token.getToken().getSubject();
+            if (sub != null) return sub;
         }
-        throw new IllegalStateException("Unsupported authentication type or missing user id");
+        throw new IllegalStateException("Unsupported authentication type or missing subject");
+    }
+
+    /**
+     * Extract the bearer token from authentication.
+     *
+     * @param authentication The Spring Security authentication
+     * @return The bearer token string (including "Bearer " prefix)
+     */
+    public static String bearerToken(Authentication authentication) {
+        if (authentication instanceof JwtAuthenticationToken token) {
+            return "Bearer " + token.getToken().getTokenValue();
+        }
+        throw new IllegalStateException("Unsupported authentication type");
+    }
+
+    /**
+     * Extract the raw JWT token value from authentication.
+     *
+     * @param authentication The Spring Security authentication
+     * @return The JWT token value (without "Bearer " prefix)
+     */
+    public static String tokenValue(Authentication authentication) {
+        if (authentication instanceof JwtAuthenticationToken token) {
+            return token.getToken().getTokenValue();
+        }
+        throw new IllegalStateException("Unsupported authentication type");
+    }
+
+    /**
+     * Get the JWT object for more detailed claim access.
+     *
+     * @param authentication The Spring Security authentication
+     * @return The JWT object
+     */
+    public static Jwt jwt(Authentication authentication) {
+        if (authentication instanceof JwtAuthenticationToken token) {
+            return token.getToken();
+        }
+        throw new IllegalStateException("Unsupported authentication type");
     }
 }
 

@@ -7,7 +7,8 @@ import nl.ak.skillswap.messageservice.api.dto.PageResponse;
 import nl.ak.skillswap.messageservice.api.dto.SendMessageRequest;
 import nl.ak.skillswap.messageservice.domain.Message;
 import nl.ak.skillswap.messageservice.service.MessageService;
-import nl.ak.skillswap.messageservice.support.CurrentUser;
+import nl.ak.skillswap.messageservice.support.AuthenticatedUserContext;
+import nl.ak.skillswap.messageservice.support.UserContextResolver;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -22,6 +23,7 @@ import java.util.UUID;
 public class MessageController {
 
     private final MessageService messageService;
+    private final UserContextResolver userContextResolver;
 
     // Send message to another user (creates conversation if missing)
     @PostMapping("/to/{otherUserId}")
@@ -30,8 +32,8 @@ public class MessageController {
             @PathVariable UUID otherUserId,
             @Valid @RequestBody SendMessageRequest request
     ) {
-        UUID me = CurrentUser.userId(authentication);
-        Message m = messageService.sendMessage(me, otherUserId, request.body());
+        AuthenticatedUserContext ctx = userContextResolver.resolve(authentication);
+        Message m = messageService.sendMessage(ctx.databaseId(), otherUserId, request.body());
         return toDto(m);
     }
 
@@ -45,8 +47,8 @@ public class MessageController {
             Instant before,
             @RequestParam(defaultValue = "50") int size
     ) {
-        UUID me = CurrentUser.userId(authentication);
-        List<Message> items = messageService.listMessages(me, conversationId, before, size);
+        AuthenticatedUserContext ctx = userContextResolver.resolve(authentication);
+        List<Message> items = messageService.listMessages(ctx.databaseId(), conversationId, before, size);
         boolean hasMore = items.size() == Math.min(Math.max(size, 1), 100);
 
         return new PageResponse<>(
@@ -58,8 +60,8 @@ public class MessageController {
     // Mark entire conversation as read for current user
     @PostMapping("/conversation/{conversationId}/read")
     public int markRead(Authentication authentication, @PathVariable UUID conversationId) {
-        UUID me = CurrentUser.userId(authentication);
-        return messageService.markRead(me, conversationId);
+        AuthenticatedUserContext ctx = userContextResolver.resolve(authentication);
+        return messageService.markRead(ctx.databaseId(), conversationId);
     }
 
     private MessageDto toDto(Message m) {

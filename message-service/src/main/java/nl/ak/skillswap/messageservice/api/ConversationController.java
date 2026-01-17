@@ -5,7 +5,8 @@ import nl.ak.skillswap.messageservice.api.dto.ConversationDto;
 import nl.ak.skillswap.messageservice.domain.Conversation;
 import nl.ak.skillswap.messageservice.service.ConversationService;
 import nl.ak.skillswap.messageservice.service.MessageService;
-import nl.ak.skillswap.messageservice.support.CurrentUser;
+import nl.ak.skillswap.messageservice.support.AuthenticatedUserContext;
+import nl.ak.skillswap.messageservice.support.UserContextResolver;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -19,10 +20,12 @@ public class ConversationController {
 
     private final ConversationService conversationService;
     private final MessageService messageService;
+    private final UserContextResolver userContextResolver;
 
     @GetMapping
     public List<ConversationDto> myConversations(Authentication authentication) {
-        UUID me = CurrentUser.userId(authentication);
+        AuthenticatedUserContext ctx = userContextResolver.resolve(authentication);
+        UUID me = ctx.databaseId();
         List<Conversation> conversations = conversationService.listForUser(me);
 
         return conversations.stream()

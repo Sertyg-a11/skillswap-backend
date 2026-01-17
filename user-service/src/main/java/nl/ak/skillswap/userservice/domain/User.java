@@ -73,4 +73,19 @@ public class User {
         this.active = false;
         this.deletedAt = OffsetDateTime.now();
     }
+
+    /**
+     * Anonymize user data for GDPR compliance.
+     * Replaces personal identifiable information with anonymized values.
+     */
+    public void anonymize() {
+        this.displayName = "Deleted User";
+        this.email = "deleted-" + this.id + "@anonymized.local";
+        this.bio = null;
+        this.timeZone = null;
+        this.active = false;
+        this.allowMatching = false;
+        this.allowEmails = false;
+        this.deletedAt = OffsetDateTime.now();
+    }
 }

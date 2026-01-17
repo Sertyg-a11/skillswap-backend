@@ -15,49 +15,66 @@ spring:
           issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/skillswap-dev}
           jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/skillswap-dev}/protocol/openid-connect/certs}
 
+  # RabbitMQ for GDPR event orchestration
+  rabbitmq:
+    host: ${RABBIT_HOST:localhost}
+    port: ${RABBIT_PORT:5672}
+    username: ${RABBIT_USERNAME:guest}
+    password: ${RABBIT_PASSWORD:guest}
+
   cloud:
     gateway:
-      server:
-        webflux:
-          forwarded:
-            enabled: true
+      globalcors:
+        add-to-simple-url-handler-mapping: true
+        cors-configurations:
+          "[/**]":
+            allowed-origins:
+              - "http://localhost:5173"
+              - "http://localhost:3000"
+            allowed-methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowed-headers:
+              - Authorization
+              - Content-Type
+              - Accept
+              - Origin
+            exposed-headers:
+              - Location
+            allow-credentials: false
 
-          globalcors:
-            add-to-simple-url-handler-mapping: true
-            cors-configurations:
-              "[/**]":
-                allowed-origins:
-                  - "http://localhost:5173"
-                  - "http://localhost:3000"
-                allowed-methods:
-                  - GET
-                  - POST
-                  - PUT
-                  - DELETE
-                  - OPTIONS
-                allowed-headers:
-                  - Authorization
-                  - Content-Type
-                  - Accept
-                  - Origin
-                exposed-headers:
-                  - Location
-                allow-credentials: false
+      routes:
+        # User service routes (excluding /api/gdpr which is handled by gateway)
+        - id: user-service
+          uri: ${USER_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/users/**,/api/skills/**
+          filters:
+            - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
 
-          routes:
-            - id: user-service
-              uri: ${USER_SERVICE_URL:http://localhost:8082}
-              predicates:
-                - Path=/api/users/**,/api/gdpr/**,/api/skills/**
-              filters:
-                - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
+        - id: message-service
+          uri: ${MESSAGE_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/messages/**,/api/conversations/**
+          filters:
+            - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
 
-            - id: message-service
-              uri: ${MESSAGE_SERVICE_URL:http://localhost:8083}
-              predicates:
-                - Path=/api/messages/**,/api/conversations/**
-              filters:
-                - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
+        - id: message-service-websocket
+          uri: ${MESSAGE_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/ws/**
+          filters:
+            - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
+
+# GDPR Configuration
+app:
+  gdpr:
+    exchange: skillswap.events
+    expected-services: 2  # user-service and message-service
+    timeout-seconds: 30
 
 management:
   endpoints:

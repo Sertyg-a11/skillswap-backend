@@ -6,6 +6,20 @@ app:
     exchange: skillswap.events
     routingKeyUserDeleted: user.deleted
 
+  gdpr:
+    queue:
+      export: gdpr.export.user-service
+      deletion: gdpr.deletion.user-service
+
+  search:
+    max-results: ${SEARCH_MAX_RESULTS:20}
+    min-query-length: ${SEARCH_MIN_QUERY_LENGTH:2}
+    max-query-length: ${SEARCH_MAX_QUERY_LENGTH:100}
+
+  rate-limiting:
+    search-per-minute: ${RATE_LIMIT_SEARCH:30}
+    search-burst: ${RATE_LIMIT_SEARCH_BURST:10}
+
 
 spring:
   application:
@@ -43,6 +57,11 @@ spring:
     port: ${RABBIT_PORT:5672}
     username: ${RABBIT_USERNAME:guest}
     password: ${RABBIT_PASSWORD:guest}
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
 
 management:
   endpoints:

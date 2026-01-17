@@ -1,0 +1,321 @@
+name: Backend CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+  security-events: write
+
+env:
+  REGISTRY: ghcr.io
+  SERVICES: api-gateway,user-service,message-service
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================
+  # Stage 1: Build and Test
+  # ============================================
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    outputs:
+      short_sha: ${{ steps.vars.outputs.short_sha }}
+      owner_lc: ${{ steps.vars.outputs.owner_lc }}
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: skillswap
+          POSTGRES_PASSWORD: skillswap
+          POSTGRES_DB: skillswap
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      rabbitmq:
+        image: rabbitmq:3-management-alpine
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Calculate variables
+        id: vars
+        run: |
+          echo "short_sha=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          echo "owner_lc=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build all services
+        run: ./gradlew build -x test --no-daemon
+
+      - name: Run unit tests
+        run: ./gradlew test --no-daemon
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/skillswap
+          SPRING_DATASOURCE_USERNAME: skillswap
+          SPRING_DATASOURCE_PASSWORD: skillswap
+          SPRING_REDIS_HOST: localhost
+          SPRING_REDIS_PORT: 6379
+          SPRING_RABBITMQ_HOST: localhost
+          SPRING_RABBITMQ_PORT: 5672
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: |
+            **/build/reports/tests/
+            **/build/test-results/
+
+      - name: Upload JARs for Docker build
+        uses: actions/upload-artifact@v4
+        with:
+          name: jars
+          path: |
+            api-gateway/build/libs/*.jar
+            user-service/build/libs/*.jar
+            message-service/build/libs/*.jar
+          retention-days: 1
+
+  # ============================================
+  # Stage 2: Security Scanning
+  # ============================================
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Run dependency vulnerability check
+        run: ./gradlew dependencyCheckAnalyze --no-daemon || true
+        continue-on-error: true
+
+      - name: Upload dependency check report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-check-report
+          path: '**/build/reports/dependency-check-report.html'
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-fs-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-fs-results.sarif'
+
+  # ============================================
+  # Stage 3: Build and Push Docker Images
+  # ============================================
+  build-images:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [build-and-test, security-scan]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      matrix:
+        service: [api-gateway, user-service, message-service]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download JARs
+        uses: actions/download-artifact@v4
+        with:
+          name: jars
+          path: .
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Calculate image tags
+        id: tags
+        run: |
+          OWNER_LC=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          SHORT_SHA=${GITHUB_SHA::7}
+          echo "owner_lc=${OWNER_LC}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.service }}/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ghcr.io/${{ steps.tags.outputs.owner_lc }}/skillswap-${{ matrix.service }}:${{ github.sha }}
+            ghcr.io/${{ steps.tags.outputs.owner_lc }}/skillswap-${{ matrix.service }}:${{ steps.tags.outputs.short_sha }}
+            ghcr.io/${{ steps.tags.outputs.owner_lc }}/skillswap-${{ matrix.service }}:dev
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy image scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'ghcr.io/${{ steps.tags.outputs.owner_lc }}/skillswap-${{ matrix.service }}:${{ steps.tags.outputs.short_sha }}'
+          format: 'sarif'
+          output: 'trivy-image-${{ matrix.service }}.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy image scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-image-${{ matrix.service }}.sarif'
+          category: 'trivy-${{ matrix.service }}'
+
+  # ============================================
+  # Stage 4: Update Infra Repo
+  # ============================================
+  update-infra:
+    name: Update Infrastructure
+    runs-on: ubuntu-latest
+    needs: build-images
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Calculate variables
+        id: vars
+        run: |
+          echo "short_sha=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          echo "owner_lc=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Update infra repo and create PR
+        env:
+          INFRA_REPO: ${{ secrets.INFRA_REPO }}
+          INFRA_BRANCH: ${{ secrets.INFRA_BRANCH }}
+          GH_USER: ${{ secrets.GH_USERNAME }}
+          GH_EMAIL: ${{ secrets.GH_EMAIL }}
+          PAT: ${{ secrets.CR_PAT }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.vars.outputs.short_sha }}"
+          BR="ci/backend-${GITHUB_RUN_ID}-${TAG}"
+
+          git clone "https://x-access-token:${PAT}@github.com/${INFRA_REPO}.git" infra
+          cd infra
+
+          # Update all backend service tags
+          for SERVICE in api-gateway user-service message-service; do
+            VALUES_FILE="environments/dev/values-${SERVICE}.yaml"
+            if [ -f "$VALUES_FILE" ]; then
+              sed -i 's/^[[:space:]]*tag:[[:space:]]*".*"/  tag: "'$TAG'"/' "$VALUES_FILE"
+              echo "Updated $VALUES_FILE with tag $TAG"
+            else
+              echo "Warning: $VALUES_FILE not found, skipping"
+            fi
+          done
+
+          git config user.name "$GH_USER"
+          git config user.email "$GH_EMAIL"
+          git checkout -b "$BR"
+          git add environments/dev/
+
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          git commit -m "infra(dev): update backend services to $TAG
+
+          Services updated:
+          - api-gateway: $TAG
+          - user-service: $TAG
+          - message-service: $TAG
+
+          Triggered by: ${{ github.sha }}"
+
+          git push "https://x-access-token:${PAT}@github.com/${INFRA_REPO}.git" "$BR"
+
+          # Create PR via GitHub API
+          curl -s -X POST \
+            -H "Authorization: token ${PAT}" \
+            -H "Accept: application/vnd.github+json" \
+            -d "{
+              \"title\": \"Update backend services to ${TAG}\",
+              \"head\": \"${BR}\",
+              \"base\": \"${INFRA_BRANCH}\",
+              \"body\": \"## Automated PR from Backend CI\n\n**Commit:** ${{ github.sha }}\n**Services Updated:**\n- api-gateway\n- user-service\n- message-service\n\n**Tag:** ${TAG}\n\n### Security Scans\nTrivy vulnerability scans were run on all images. Check the [Security tab](https://github.com/${{ github.repository }}/security/code-scanning) for results.\"
+            }" \
+            "https://api.github.com/repos/${INFRA_REPO}/pulls"

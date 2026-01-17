@@ -53,3 +53,19 @@ app:
   messaging:
     exchange: skillswap.events
     routingKeyMessageCreated: message.created
+
+  user-service:
+    url: ${USER_SERVICE_URL:http://localhost:8082}
+
+  rate-limiting:
+    messages-per-minute: ${RATE_LIMIT_MESSAGES:30}
+    messages-burst: ${RATE_LIMIT_BURST:10}
+
+  messages:
+    max-length: ${MESSAGE_MAX_LENGTH:2000}
+    min-length: ${MESSAGE_MIN_LENGTH:1}
+
+  gdpr:
+    queue:
+      export: gdpr.export.message-service
+      deletion: gdpr.deletion.message-service

@@ -1,5 +1,6 @@
 package nl.ak.skillswap.messageservice.config;
 
+import nl.ak.skillswap.messageservice.service.UserIdResolverService;
 import nl.ak.skillswap.messageservice.support.ForbiddenException;
 import nl.ak.skillswap.messageservice.support.NotFoundException;
 import org.springframework.http.HttpStatus;
@@ -24,6 +25,15 @@ public class WebExceptionHandler {
     public ProblemDetail forbidden(ForbiddenException ex) {
         ProblemDetail pd = ProblemDetail.forStatus(HttpStatus.FORBIDDEN);
         pd.setTitle("Forbidden");
+        pd.setDetail(ex.getMessage());
+        return pd;
+    }
+
+    @ExceptionHandler(UserIdResolverService.UserResolutionException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public ProblemDetail userResolution(UserIdResolverService.UserResolutionException ex) {
+        ProblemDetail pd = ProblemDetail.forStatus(HttpStatus.UNAUTHORIZED);
+        pd.setTitle("User Resolution Failed");
         pd.setDetail(ex.getMessage());
         return pd;
     }
