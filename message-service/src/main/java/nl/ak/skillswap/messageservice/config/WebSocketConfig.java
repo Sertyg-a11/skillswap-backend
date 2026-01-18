@@ -1,6 +1,7 @@
 package nl.ak.skillswap.messageservice.config;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
@@ -14,6 +15,9 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final WebSocketAuthInterceptor authInterceptor;
+
+    @Value("${websocket.allowed-origins:http://localhost:5173,http://localhost:3000}")
+    private String allowedOriginsConfig;
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
@@ -30,20 +34,16 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
+        String[] allowedOrigins = allowedOriginsConfig.split(",");
+
         // WebSocket endpoint - clients connect here
         registry.addEndpoint("/ws")
-                .setAllowedOrigins(
-                    "http://localhost:5173",
-                    "http://localhost:3000"
-                )
+                .setAllowedOrigins(allowedOrigins)
                 .withSockJS(); // Fallback for older browsers
 
         // Pure WebSocket endpoint (no SockJS)
         registry.addEndpoint("/ws")
-                .setAllowedOrigins(
-                    "http://localhost:5173",
-                    "http://localhost:3000"
-                );
+                .setAllowedOrigins(allowedOrigins);
     }
 
     @Override
